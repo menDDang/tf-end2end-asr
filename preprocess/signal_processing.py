@@ -31,3 +31,15 @@ def compute_mel_bins(sampling_rate, fft_length, num_mels, hertz_low, hertz_high)
     )
 
     return mel_bins
+
+
+def compute_mel(spectrum, mel_bins, normalize_mel=True):
+
+    mel = tf.tensordot(spectrum, mel_bins, 1)
+    mel.set_shape(spectrum.shape[:-1].concatenate(mel_bins.shape[-1:]))
+
+    log_mel = tf.math.log(mel + 1e-6)
+    if normalize_mel:
+        log_mel -= tf.reduce_mean(log_mel, axis=0)
+    
+    return log_mel
