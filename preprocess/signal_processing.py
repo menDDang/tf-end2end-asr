@@ -19,3 +19,15 @@ def compute_spectrum(audio, sr, frame_length_in_sec, step_length_in_sec, num_fft
 
     return magnitudes
 
+
+def compute_mel_bins(sampling_rate, fft_length, num_mels, hertz_low, hertz_high):
+
+    mel_bins = tf.signal.linear_to_mel_weight_matrix(
+        num_mel_bins=num_mels,
+        num_spectrogram_bins=int(fft_length / 2) + 1,
+        sample_rate=sampling_rate,
+        lower_edge_hertz=hertz_low,
+        upper_edge_hertz=hertz_high
+    )
+
+    return mel_bins
