@@ -69,9 +69,26 @@ def load_librispeech_dataset(data_dir, split_names):
     return dataset
 
 
+def preprocess_librispeech(data_dir, split_names):
 
+    # dataset : (audio, sr, transcript)
+    dataset = load_librispeech_dataset(data_dir, split_names)
+
+    # dataset : (audio, sr, tokenized_transcription)
+    tokenizer = preprocess.create_char_tokenizer()
+    dataset = dataset.map(
+        lambda audio, sr, transcript: (audio, sr, preprocess.tokenize_text(transcript, tokenizer)),
+        num_parallel_calls=tf.data.experimental.AUTOTUNE
+    )
+    
+    return dataset
+
+    
 if __name__ == "__main__": 
 
-    dataset = load_librispeech_dataset("data/LibriSpeech", ["dev-clean"])
+    dataset = preprocess_librispeech("data/LibriSpeech", ["dev-clean"])
+
     for b, inputs in enumerate(dataset.take(1)):
-        print(inputs)
+
+        audio, sr, tokens = inputs
+        print(tokens)
