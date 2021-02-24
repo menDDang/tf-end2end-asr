@@ -69,8 +69,18 @@ def load_librispeech_dataset(data_dir, split_names):
     return dataset
 
 
-def preprocess_librispeech(data_dir, split_names):
+def preprocess_librispeech(data_dir, split_names, hp):
 
+    # Parse hyper parameters
+    sampling_rate = hp["sampling_rate"]
+    num_fft = hp["num_fft"]
+    frame_length_in_sec = hp["frame_length_in_sec"]
+    step_length_in_sec = hp["step_length_in_sec"]
+    num_mels = hp["num_mels"]
+    hertz_low = hp["hertz_low"]
+    hertz_high = hp["hertz_high"]
+    normalize_mel = hp["normalize_mel"]
+    
     # dataset : (audio, sr, transcript)
     dataset = load_librispeech_dataset(data_dir, split_names)
 
@@ -80,15 +90,40 @@ def preprocess_librispeech(data_dir, split_names):
         lambda audio, sr, transcript: (audio, sr, preprocess.tokenize_text(transcript, tokenizer)),
         num_parallel_calls=tf.data.experimental.AUTOTUNE
     )
+
+    # build spectrum extractor
+    spectrum_extractor = lambda audio, sr: (
+        preprocess.compute_spectrum(audio, sr, frame_length_in_sec, step_length_in_sec, num_fft))
+
+    # build mel extractor
+    mel_bins = preprocess.compute_mel_bins(sampling_rate, num_fft, num_mels, hertz_low, hertz_high)
+    mel_extractor = lambda audio, sr: (
+        preprocess.compute_mel(spectrum_extractor(audio, sr), mel_bins, normalize_mel))
+    
+    # dataset : (mel, tokenized_transcription)
+    dataset = dataset.map(
+        lambda audio, sr, tokens: (mel_extractor(audio, sr), tokens),
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
     
     return dataset
 
-    
+
 if __name__ == "__main__": 
 
-    dataset = preprocess_librispeech("data/LibriSpeech", ["dev-clean"])
+    hp = dict()
+    hp["sampling_rate"] = 16000
+    hp["num_fft"] = 512
+    hp["frame_length_in_sec"] = 0.025
+    hp["step_length_in_sec"] = 0.01
+    hp["num_mels"] = 80
+    hp["hertz_low"] = 125
+    hp["hertz_high"] = 7600
+    hp["normalize_mel"] = True
+
+    dataset = preprocess_librispeech("data/LibriSpeech", ["dev-clean"], hp)
 
     for b, inputs in enumerate(dataset.take(1)):
 
-        audio, sr, tokens = inputs
+        mel, tokens = inputs
+        print(mel.shape)
         print(tokens)
