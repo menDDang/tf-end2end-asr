@@ -35,5 +35,8 @@ def tokenize_text(text, tokenizer):
 
     normalized_text = _normalize(text)
     tokens = tokenizer(tf.reshape(normalized_text, ()))
+    
+    # Add 'end signal' at the end of tokens
+    tokens = tf.concat([tokens, [0]], axis=0)
 
     return tokens
