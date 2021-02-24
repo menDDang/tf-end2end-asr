@@ -37,11 +37,3 @@ def tokenize_text(text, tokenizer):
     tokens = tokenizer(tf.reshape(normalized_text, ()))
 
     return tokens
-
-if __name__ == "__main__":
-
-    tokenizer = create_char_tokenizer()
-    
-    text = "apple"
-    tokens = tokenize_text(text, tokenizer)
-    print(tokens)
