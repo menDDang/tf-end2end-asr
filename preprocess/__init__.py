@@ -8,4 +8,5 @@ from .text_processing import tokenize_text
 
 from .serialize_processing import serialize_example
 from .serialize_processing import parse_example
+from .serialize_processing import load_dataset
 from .serialize_processing import write_dataset
