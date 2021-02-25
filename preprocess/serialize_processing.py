@@ -4,7 +4,7 @@ import tensorflow as tf
 def serialize_example(mel, tokens):
 
     def _bytes_features(value):
-        if isinstance(value, type(tf.contant(0))):
+        if isinstance(value, type(tf.constant(0))):
             value = value.numpy()
         return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
