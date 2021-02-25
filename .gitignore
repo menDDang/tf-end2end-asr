@@ -1,8 +1,11 @@
-# data directory
-data/*
-
 # python cache files
 */__pycache__/*
 
 # files for visual studio code
 .vscode/*
+
+# data directory
+data/*
+
+# outputs 
+processed_data/*
