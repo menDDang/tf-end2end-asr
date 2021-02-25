@@ -1,4 +1,5 @@
 import os
+import argparse
 
 import tensorflow as tf
 
@@ -110,20 +111,44 @@ def preprocess_librispeech(data_dir, split_names, hp):
 
 if __name__ == "__main__": 
 
-    hp = dict()
-    hp["sampling_rate"] = 16000
-    hp["num_fft"] = 512
-    hp["frame_length_in_sec"] = 0.025
-    hp["step_length_in_sec"] = 0.01
-    hp["num_mels"] = 80
-    hp["hertz_low"] = 125
-    hp["hertz_high"] = 7600
-    hp["normalize_mel"] = True
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--out_dir", type=str, required=True)
 
-    dataset = preprocess_librispeech("data/LibriSpeech", ["dev-clean"], hp)
+    parser.add_argument("--sampling_rate", type=int, default=16000)
+    parser.add_argument("--num_fft", type=int, default=512)
+    parser.add_argument("--frame_length_in_sec", type=float, default=0.025)
+    parser.add_argument("--step_length_in_sec", type=float, default=0.01)
+    parser.add_argument("--num_mels", type=int, default=80)
+    parser.add_argument("--hertz_low", type=int, default=0)
+    parser.add_argument("--hertz_high", type=int, default=8000)
+    parser.add_argument("--normalize_mel", type=bool, default=True)
+    args = parser.parse_args()
 
-    for b, inputs in enumerate(dataset.take(1)):
+    # Parse arguments
+    hp = {
+        "sampling_rate" : args.sampling_rate,
+        "num_fft" : args.num_fft,
+        "frame_length_in_sec" : args.frame_length_in_sec,
+        "step_length_in_sec" : args.step_length_in_sec,
+        "num_mels" : args.num_mels,
+        "hertz_low" : args.hertz_low,
+        "hertz_high" : args.hertz_high,
+        "normalize_mel" : args.normalize_mel,
+    }
 
+    # Create dataset
+    dev_dataset_list = ["dev-clean"]
+    dev_dataset = preprocess_librispeech(args.data_dir, dev_dataset_list, hp)
+
+    # Serialize & store dataset
+    dev_dataset_path = os.path.join(args.out_dir, "dev.tfrecord")
+    preprocess.write_dataset(dev_dataset, dev_dataset_path)
+    
+    # Re-load dataset
+    dev_dataset = preprocess.load_dataset(dev_dataset_path)
+
+    for b, inputs in enumerate(dev_dataset):
         mel, tokens = inputs
         print(mel.shape)
         print(tokens)
