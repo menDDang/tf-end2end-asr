@@ -141,14 +141,13 @@ if __name__ == "__main__":
     dev_dataset_list = ["dev-clean"]
     dev_dataset = preprocess_librispeech(args.data_dir, dev_dataset_list, hp)
 
-    # Serialize & store dataset
+    # Serialize dataset
+    dev_dataset = dev_dataset.map(
+        preprocess.serialize_example,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    # Store dataset
     dev_dataset_path = os.path.join(args.out_dir, "dev.tfrecord")
+    os.makedirs(args.out_dir, exist_ok=True)
     preprocess.write_dataset(dev_dataset, dev_dataset_path)
     
-    # Re-load dataset
-    dev_dataset = preprocess.load_dataset(dev_dataset_path)
-
-    for b, inputs in enumerate(dev_dataset):
-        mel, tokens = inputs
-        print(mel.shape)
-        print(tokens)
