@@ -44,6 +44,15 @@ def parse_example(serialized_example):
     return (mel, tokens)
 
 
+def load_dataset(path):
+
+    dataset = tf.data.TFRecordDataset(path)
+    dataset = dataset.map(
+        parse_example,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        
+    return dataset
+
 def write_dataset(dataset, path):
 
     writer = tf.data.experimental.TFRecordWriter(path)
