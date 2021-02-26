@@ -11,7 +11,7 @@ class LSTMCell(tf.keras.layers.Layer):
         super(LSTMCell, self).__init__(**kwargs)
 
         # Set properties
-        self.num_units = units
+        self.units = units
         self.layer_norm = layer_norm
         self.dropout = dropout
         self.dropout_prob = dropout_prob
@@ -71,7 +71,7 @@ class LSTMCell(tf.keras.layers.Layer):
         
         # Normalize c
         if self.layer_norm:
-            mu, sigma = tf.nn.moments(c, axis=[1], keepdims=True)
+            mu, sigma = tf.nn.moments(c, axes=[1], keepdims=True)
             c = (c - mu) / sigma
             c = self.gamma * c + self.beta
         
@@ -84,5 +84,5 @@ class LSTMCell(tf.keras.layers.Layer):
     def get_initial_hidden_states(self, batch_size):
 
         return tf.zeros(shape=[batch_size, self.num_units], dtype=self.dtype)
-        
+
         
