@@ -9,3 +9,5 @@ data/*
 
 # outputs 
 processed_data/*
+logs/*
+chkpts/*
