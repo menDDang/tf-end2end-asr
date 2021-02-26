@@ -1,7 +1,10 @@
 import os
+import time
 import argparse
+from datetime import datetime
 
 import tensorflow as tf
+from tensorboard.plugins.hparams import api
 
 import preprocess
 import model
@@ -59,6 +62,57 @@ def build_model(hp):
     return encoder, decoder
 
 
+def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
+    
+    # Get shapes
+    batch_size = y_true.shape[0]
+    y_true_length = y_true.shape[1]
+
+    # Set initial states for decoder
+    decoder_inputs = tf.zeros(shape=[batch_size, 1], dtype=tf.float32)
+    decoder_hidden_states = decoder.get_initial_hidden_states(batch_size)
+
+    # Compute outputs of encoder
+    encoder_outputs = encoder(mel)
+
+    loss = float(0)
+    y_pred = tf.TensorArray(size=y_true_length, dtype=tf.float32)
+    attention_weights = tf.TensorArray(size=y_true_length, dtype=tf.float32)
+    for t in tf.range(y_true_length):
+        # Comput output of decoder
+        decoder_outputs, decoder_hidden_states, attention_weights_t = decoder(decoder_inputs, decoder_hidden_states, encoder_outputs)
+
+        # Compute loss
+        loss += tf.reduce_sum(loss_fn(
+            tf.cast(tf.expand_dims(y_true[:, t], axis=1), tf.float32),
+            decoder_outputs, 
+            from_logits=True
+        ))
+
+        # Get argmax value for next step
+        decoder_inputs = tf.cast(
+            tf.expand_dims(tf.argmax(decoder_outputs, axis=1), axis=1),
+            dtype=tf.float32
+        )
+
+        y_pred = y_pred.write(t, decoder_inputs)
+        attention_weights = attention_weights.write(t, attention_weights_t)  # shape of attention_weights_t : [B, L, 1]
+        
+    loss /= float(batch_size)
+
+    y_pred = y_pred.stack()
+    y_pred = tf.cast(tf.transpose(y_pred, [1, 0, 2]), tf.int32)  # [T, B, 1] -> [B, T, 1]
+    cer = tf.reduce_mean(tf.edit_distance(
+        hypothesis=tf.sparse.from_dense(y_pred),
+        truth=tf.sparse.from_dense(y_true),
+        normalize=True
+    ))
+
+    attention_weights = attention_weights.stack()  # shape : [T, B, L, 1]
+    attention_weights = tf.transpose(attention_weights, [1, 0, 2, 3])  # [T, B, L, 1] -> [B, T, L, 1]
+    
+    return loss, cer, attention_weights
+    
 @tf.function
 def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn):
 
@@ -105,8 +159,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
-    #parser.add_argument("--log_dir", type=str, required=True)
-    #parser.add_argument("--chkpt_dir", type=str, required=True)
+    parser.add_argument("--log_dir", type=str, required=True)
+    parser.add_argument("--chkpt_dir", type=str, required=True)
 
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--num_mels", type=int, default=80)
@@ -127,9 +181,24 @@ if __name__ == "__main__":
     parser.add_argument("--decoder_gru_dropout_prob", type=float, default=0.1)
     parser.add_argument("--decoder_gru_layer_norm", type=bool, default=True)
     parser.add_argument("--decoder_fc_activation", type=str, default='relu')
+    
+    parser.add_argument("--decay_learning_rate", type=bool, default=True)
+    parser.add_argument("--init_learning_rate", type=float, default=0.01)
+    parser.add_argument("--learning_rate_decay_steps", type=int, default=1000)
+    parser.add_argument("--learning_rate_decay_rate", type=float, default=0.96)
+    parser.add_argument("--optimizer", type=str, default='sgd', help='one of {"sgd", "adam"}')
     args = parser.parse_args()
 
     vocab_size = len("abcdefghijklmnopqrstuvwxyz'") + 1
+    
+    # Set log directory
+    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M')
+    log_dir = os.path.join(args.log_dir, current_time)
+
+    # Set checkpoint directory
+    os.makedirs(args.chkpt_dir, exist_ok=True)
+    chkpt_dir = os.path.join(args.chkpt_dir, current_time)
+
 
     hp = {
         "batch_size": args.batch_size,
@@ -155,22 +224,96 @@ if __name__ == "__main__":
             "gru_dropout_prob": args.decoder_gru_dropout_prob,
             "gru_layer_norm": args.decoder_gru_layer_norm,
             "fc_activation": args.decoder_fc_activation,
+        },
+
+        "train" : {
+            "decay_learning_rate" : args.decay_learning_rate,
+            "init_learning_rate" : args.init_learning_rate,
+            "learning_rate_decay_steps" : args.learning_rate_decay_steps,
+            "learning_rate_decay_rate" : args.learning_rate_decay_rate,
+            "optimizer" : args.optimizer
         }
     }
 
     # Get dataset
+    train_dataset_path = os.path.join(args.data_dir, "train.tfrecord")
     dev_dataset_path = os.path.join(args.data_dir, "dev.tfrecord")
+
+    train_dataset = get_dataset(train_dataset_path, hp["batch_size"])
     dev_dataset = get_dataset(dev_dataset_path, hp["batch_size"])
 
+    # Build model
     encoder, decoder = build_model(hp)
+
+    # Build optimizer & loss function
     learning_rate = 0.001
     optimizer = tf.optimizers.Adam(learning_rate)
     loss_fn = tf.losses.sparse_categorical_crossentropy
 
-    for b, inputs in enumerate(dev_dataset.take(1)):
+    # Store hparams
+    with tf.summary.create_file_writer(log_dir).as_default():
+        api.hparams(hp)
 
-        mel, y_true = inputs
+    # Set learning rate
+    if not hp["train"]["decay_learning_rate"]:
+        learning_rate = hp["train"]["init_learning_rate"]
+    else:
+        learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=hp["train"]["init_learning_rate"],
+            decay_steps=hp["train"]["learning_rate_decay_steps"],
+            decay_rate=hp["train"]["learning_rate_decay_rate"]
+        )
+
+    # Set optimizer
+    optimizer_type = hp["train"]["optimizer"]
+    if optimizer_type == 'sgd':
+        optimizer = tf.keras.optimizers.SGD(learning_rate, momentum=0.9)
+    elif optimizer_type == 'adam':
+        optimizer = tf.keras.optimizers.Adam(learning_rate)
+    else:
+        print("undefined optimizer type : {}".format(optimizer_type))
+        exit(1)
+
+    global_step = 0
+    for epoch in range(args.num_epochs):
         
-        loss = train_step(mel, y_true, encoder, decoder, optimizer, loss_fn)
+        # Train
+        for batch, (mel, y_true) in enumerate(train_dataset):
+            start_time = time.time()
 
-        print(loss)
+            train_loss = train_step(mel, y_true, encoder, decoder, optimizer, loss_fn)
+            step_time = time.time() - start_time
+
+            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:4.f}'.foramt(
+                epoch, batch, global_step, start_time, train_loss
+            )
+            print(log_str)
+
+            with tf.summary.create_file_writer(log_dir).as_default():
+                tf.summary.scalar("Train Loss", train_loss, step=global_step)
+
+            global_step += 1
+
+        # Evaluate
+        loss_object = tf.keras.metrics.Mean()
+        cer_object = tf.keras.metrics.Mean()
+        for batch, (mel, y_true) in enumerate(dev_dataset.take(1)):
+            dev_loss, dev_cer, attention_weights = evaluate_step(mel, y_true, encoder, decoder, loss_fn)
+
+            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:4.f}, CER : {:4.f}'.foramt(
+                epoch, batch, global_step, start_time, dev_loss, dev_cer
+            )
+            print(log_str)
+            
+            loss_object(dev_loss)
+            cer_object(dev_cer)
+
+        dev_loss = loss_object.result()
+        dev_cer = cer_object.result()
+        with tf.summary.create_file_writer(log_dir).as_default():
+            tf.summary.scalar("Dev Loss", dev_loss, step=global_step)
+            tf.summary.scalar("Dev cer", dev_cer, step=global_step)
+            tf.summary.image("Dev attention", attention_weights, step=global_step)
+
+        # Save checkpoint
+        checkpoint_filepath = os.path.join(chkpt_dir, "chkpt_step:{}_loss:{:.4f}.hdf5".format(global_step, dev_loss))
