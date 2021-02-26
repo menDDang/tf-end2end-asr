@@ -36,26 +36,26 @@ def get_dataset(dataset_path,
 def build_model(hp):
 
     encoder = model.Encoder(
-        num_layers=hp["encoder"]["num_layers"],
-        num_units=hp["encoder"]["num_units"], 
-        dropout=hp["encoder"]["dropout"],
-        dropout_prob=hp["encoder"]["dropout_prob"],
-        layer_norm=hp["encoder"]["layer_norm"],
+        num_layers=hp["encoder_num_layers"],
+        num_units=hp["encoder_num_units"], 
+        dropout=hp["encoder_dropout"],
+        dropout_prob=hp["encoder_dropout_prob"],
+        layer_norm=hp["encoder_layer_norm"],
         dtype=tf.float32
     )
 
     decoder = model.Decoder(
-        attention_unit_num=hp["decoder"]["attention_unit_num"],
-        vocab_size=hp["decoder"]["vocab_size"],
-        embedding_dim=hp["decoder"]["embeddimg_dim"],
-        gru_unit_num=hp["decoder"]["gru_unit_num"],
-        fc_layer_num=hp["decoder"]["fc_layer_num"],
-        fc_unit_num=hp["decoder"]["fc_unit_num"],
-        attention_type=hp["decoder"]["attention_type"],
-        gru_layer_norm=hp["decoder"]["gru_layer_norm"],
-        gru_dropout=hp["decoder"]["gru_dropout"],
-        gru_dropout_prob=hp["decoder"]["gru_dropout_prob"],
-        fc_activation=hp["decoder"]["fc_activation"],
+        attention_unit_num=hp["decoder_attention_unit_num"],
+        vocab_size=hp["decoder_vocab_size"],
+        embedding_dim=hp["decoder_embeddimg_dim"],
+        gru_unit_num=hp["decoder_gru_unit_num"],
+        fc_layer_num=hp["decoder_fc_layer_num"],
+        fc_unit_num=hp["decoder_fc_unit_num"],
+        attention_type=hp["decoder_attention_type"],
+        gru_layer_norm=hp["decoder_gru_layer_norm"],
+        gru_dropout=hp["decoder_gru_dropout"],
+        gru_dropout_prob=hp["decoder_gru_dropout_prob"],
+        fc_activation=hp["decoder_fc_activation"],
         dtype=tf.float32
     )
 
@@ -187,6 +187,7 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate_decay_steps", type=int, default=1000)
     parser.add_argument("--learning_rate_decay_rate", type=float, default=0.96)
     parser.add_argument("--optimizer", type=str, default='sgd', help='one of {"sgd", "adam"}')
+    parser.add_argument("--num_epochs", type=int, default=1)
     args = parser.parse_args()
 
     vocab_size = len("abcdefghijklmnopqrstuvwxyz'") + 1
@@ -204,39 +205,33 @@ if __name__ == "__main__":
         "batch_size": args.batch_size,
         "num_mels": args.num_mels,
 
-        "encoder" : {
-            "num_layers" : args.encoder_num_layers,
-            "num_units" : args.encoder_num_units,
-            "dropout" : args.encoder_dropout,
-            "dropout_prob" : args.encoder_dropout_prob,
-            "layer_norm" : args.encoder_layer_norm,
-        },
+        "encoder_num_layers" : args.encoder_num_layers,
+        "encoder_num_units" : args.encoder_num_units,
+        "encoder_dropout" : args.encoder_dropout,
+        "encoder_dropout_prob" : args.encoder_dropout_prob,
+        "encoder_layer_norm" : args.encoder_layer_norm,
 
-        "decoder" : {
-            "attention_unit_num": args.decoder_attention_unit_num,
-            "vocab_size": vocab_size,
-            "embeddimg_dim": args.decoder_embedding_dim,
-            "gru_unit_num": args.decoder_gru_unit_num,
-            "fc_layer_num": args.decoder_fc_layer_num,
-            "fc_unit_num": args.decoder_fc_unit_num,
-            "attention_type": args.decoder_attention_type,
-            "gru_dropout": args.decoder_gru_dropout,
-            "gru_dropout_prob": args.decoder_gru_dropout_prob,
-            "gru_layer_norm": args.decoder_gru_layer_norm,
-            "fc_activation": args.decoder_fc_activation,
-        },
+        "decoder_attention_unit_num": args.decoder_attention_unit_num,
+        "decoder_vocab_size": vocab_size,
+        "decoder_embeddimg_dim": args.decoder_embedding_dim,
+        "decoder_gru_unit_num": args.decoder_gru_unit_num,
+        "decoder_fc_layer_num": args.decoder_fc_layer_num,
+        "decoder_fc_unit_num": args.decoder_fc_unit_num,
+        "decoder_attention_type": args.decoder_attention_type,
+        "decoder_gru_dropout": args.decoder_gru_dropout,
+        "decoder_gru_dropout_prob": args.decoder_gru_dropout_prob,
+        "decoder_gru_layer_norm": args.decoder_gru_layer_norm,
+        "decoder_fc_activation": args.decoder_fc_activation,
 
-        "train" : {
-            "decay_learning_rate" : args.decay_learning_rate,
-            "init_learning_rate" : args.init_learning_rate,
-            "learning_rate_decay_steps" : args.learning_rate_decay_steps,
-            "learning_rate_decay_rate" : args.learning_rate_decay_rate,
-            "optimizer" : args.optimizer
-        }
+        "decay_learning_rate" : args.decay_learning_rate,
+        "init_learning_rate" : args.init_learning_rate,
+        "learning_rate_decay_steps" : args.learning_rate_decay_steps,
+        "learning_rate_decay_rate" : args.learning_rate_decay_rate,
+        "optimizer" : args.optimizer
     }
 
     # Get dataset
-    train_dataset_path = os.path.join(args.data_dir, "train.tfrecord")
+    train_dataset_path = os.path.join(args.data_dir, "dev.tfrecord")
     dev_dataset_path = os.path.join(args.data_dir, "dev.tfrecord")
 
     train_dataset = get_dataset(train_dataset_path, hp["batch_size"])
@@ -255,17 +250,17 @@ if __name__ == "__main__":
         api.hparams(hp)
 
     # Set learning rate
-    if not hp["train"]["decay_learning_rate"]:
-        learning_rate = hp["train"]["init_learning_rate"]
+    if not hp["decay_learning_rate"]:
+        learning_rate = hp["init_learning_rate"]
     else:
         learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=hp["train"]["init_learning_rate"],
-            decay_steps=hp["train"]["learning_rate_decay_steps"],
-            decay_rate=hp["train"]["learning_rate_decay_rate"]
+            initial_learning_rate=hp["init_learning_rate"],
+            decay_steps=hp["learning_rate_decay_steps"],
+            decay_rate=hp["learning_rate_decay_rate"]
         )
 
     # Set optimizer
-    optimizer_type = hp["train"]["optimizer"]
+    optimizer_type = hp["optimizer"]
     if optimizer_type == 'sgd':
         optimizer = tf.keras.optimizers.SGD(learning_rate, momentum=0.9)
     elif optimizer_type == 'adam':
@@ -284,8 +279,8 @@ if __name__ == "__main__":
             train_loss = train_step(mel, y_true, encoder, decoder, optimizer, loss_fn)
             step_time = time.time() - start_time
 
-            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:4.f}'.foramt(
-                epoch, batch, global_step, start_time, train_loss
+            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:.4f}'.format(
+                epoch, batch, global_step, step_time, train_loss
             )
             print(log_str)
 
@@ -300,7 +295,7 @@ if __name__ == "__main__":
         for batch, (mel, y_true) in enumerate(dev_dataset.take(1)):
             dev_loss, dev_cer, attention_weights = evaluate_step(mel, y_true, encoder, decoder, loss_fn)
 
-            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:4.f}, CER : {:4.f}'.foramt(
+            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:4.f}, CER : {:.4f}'.format(
                 epoch, batch, global_step, start_time, dev_loss, dev_cer
             )
             print(log_str)
