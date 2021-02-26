@@ -15,6 +15,8 @@ class Decoder(tf.keras.layers.Layer):
 
         super(Decoder, self).__init__(**kwargs)
 
+        self.attention_unit_num = attention_unit_num
+
         # Attention
         if attention_type == 'Bahdanau':
             self.attention = BahdanauAttention(attention_unit_num)
@@ -57,3 +59,6 @@ class Decoder(tf.keras.layers.Layer):
 
         return output, hidden_states_now, attention_weights
 
+
+    def get_initial_hidden_states(self, batch_size):
+        return tf.zeros(shape=[batch_size, self.attention_unit_num], dtype=self.dtype)
