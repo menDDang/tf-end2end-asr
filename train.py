@@ -276,7 +276,6 @@ if __name__ == "__main__":
         # Train
         for batch, (mel, y_true) in enumerate(train_dataset):
             start_time = time.time()
-
             train_loss = train_step(mel, y_true, encoder, decoder, optimizer, loss_fn)
             step_time = time.time() - start_time
 
