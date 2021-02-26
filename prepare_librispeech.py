@@ -25,6 +25,14 @@ def get_transcripts(data_dir, names):
     return transcripts
 
 
+def tf_file_exists(filepath):
+
+    return tf.py_function(
+        lambda x: os.path.exists(x.numpy()),
+        inp=[filepath],
+        Tout=tf.bool)
+
+
 def parse_line(line, data_dir, split_names):
 
     line_split = tf.strings.split(line, ' ')
@@ -43,17 +51,22 @@ def parse_line(line, data_dir, split_names):
         lambda split_name: tf.strings.join([data_dir, split_name, speaker_id, chapter_id, uttid], '/') + '.flac',
         tf.constant(split_names)
     )
-
+    
+    # Check file exists
+    audio_file_path_idx = tf.where(
+        tf.map_fn(tf_file_exists, audio_file_paths, dtype=tf.bool))[0][0]
+    audio_file_paths = audio_file_paths[audio_file_path_idx]
+    
     # Load audio files
     audio, sr = tf.py_function(
-        lambda path: preprocess.load_audio(path[0].numpy()),
+        lambda path: preprocess.load_audio(path.numpy()),
         inp=[audio_file_paths],
         Tout=[tf.float32, tf.int32]
     )
     
     return audio, sr, transcript
     
-
+    
 def load_librispeech_dataset(data_dir, split_names):
 
     transcript_file_paths = get_transcripts(data_dir, split_names)
@@ -138,16 +151,28 @@ if __name__ == "__main__":
     }
 
     # Create dataset
+    train_dataset_list = ["train-clean-100", "train-clean-360"]
+    train_dataset = preprocess_librispeech(args.data_dir, train_dataset_list, hp)
+
     dev_dataset_list = ["dev-clean"]
     dev_dataset = preprocess_librispeech(args.data_dir, dev_dataset_list, hp)
 
     # Serialize dataset
+    train_dataset = train_dataset.map(
+        preprocess.serialize_example,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
     dev_dataset = dev_dataset.map(
         preprocess.serialize_example,
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     # Store dataset
+    train_dataset_path = os.path.join(args.out_dir, "train.tfrecord")
+    os.makedirs(args.out_dir, exist_ok=True)
+    preprocess.write_dataset(train_dataset, train_dataset_path)
+    print("preprocessing for train dataset is done")
+
     dev_dataset_path = os.path.join(args.out_dir, "dev.tfrecord")
     os.makedirs(args.out_dir, exist_ok=True)
     preprocess.write_dataset(dev_dataset, dev_dataset_path)
+    print("preprocessing for dev dataset is done")
     
