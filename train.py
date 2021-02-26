@@ -102,6 +102,7 @@ def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
 
     y_pred = y_pred.stack()
     y_pred = tf.cast(tf.transpose(y_pred, [1, 0, 2]), tf.int32)  # [T, B, 1] -> [B, T, 1]
+    y_pred = tf.squeeze(y_pred, axis=2)
     cer = tf.reduce_mean(tf.edit_distance(
         hypothesis=tf.sparse.from_dense(y_pred),
         truth=tf.sparse.from_dense(y_true),
@@ -288,27 +289,33 @@ if __name__ == "__main__":
                 tf.summary.scalar("Train Loss", train_loss, step=global_step)
 
             global_step += 1
+            break
 
         # Evaluate
         loss_object = tf.keras.metrics.Mean()
         cer_object = tf.keras.metrics.Mean()
         for batch, (mel, y_true) in enumerate(dev_dataset.take(1)):
             dev_loss, dev_cer, attention_weights = evaluate_step(mel, y_true, encoder, decoder, loss_fn)
-
-            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:4.f}, CER : {:.4f}'.format(
-                epoch, batch, global_step, start_time, dev_loss, dev_cer
-            )
-            print(log_str)
             
             loss_object(dev_loss)
             cer_object(dev_cer)
 
+
         dev_loss = loss_object.result()
         dev_cer = cer_object.result()
+
+        log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Loss : {:.4f}, CER : {:.4f}'.format(
+            epoch, batch, global_step, dev_loss, dev_cer
+        )
+        print(log_str)
+
         with tf.summary.create_file_writer(log_dir).as_default():
             tf.summary.scalar("Dev Loss", dev_loss, step=global_step)
             tf.summary.scalar("Dev cer", dev_cer, step=global_step)
             tf.summary.image("Dev attention", attention_weights, step=global_step)
 
         # Save checkpoint
-        checkpoint_filepath = os.path.join(chkpt_dir, "chkpt_step:{}_loss:{:.4f}.hdf5".format(global_step, dev_loss))
+        encoder_chkpt_filepath = os.path.join(chkpt_dir, "chkpt_encoder_step:{}_loss:{:.4f}.hdf5".format(global_step, dev_loss))
+        decoder_chkpt_filepath = os.path.join(chkpt_dir, "chkpt_decoder_step:{}_loss:{:.4f}.hdf5".format(global_step, dev_loss))
+        encoder.save_weights(encoder_chkpt_filepath)
+        decoder.save_weights(decoder_chkpt_filepath)
