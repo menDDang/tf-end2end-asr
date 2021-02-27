@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from .lstm_cell import LSTMCell
 
-class Encoder(tf.keras.layers.Layer):
+class Encoder(tf.keras.Model):
 
     def __init__(self, num_layers, num_units, 
                 dropout=False, dropout_prob=0.1,

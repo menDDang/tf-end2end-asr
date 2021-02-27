@@ -3,10 +3,10 @@ import tensorflow as tf
 from .attention import *
 from .gru_cell import GRUCell
 
-class Decoder(tf.keras.layers.Layer):
+class Decoder(tf.keras.Model):
 
     def __init__(self, 
-                attention_unit_num, vocab_size, embedding_dim, gru_unit_num,
+                attention_unit_num, vocab_size, gru_unit_num,
                 fc_layer_num, fc_unit_num,
                 attention_type='Bahdanau',
                 gru_layer_norm=False, gru_dropout=False, gru_dropout_prob=0.1,
@@ -22,7 +22,7 @@ class Decoder(tf.keras.layers.Layer):
             self.attention = BahdanauAttention(attention_unit_num)
 
         # Embedding
-        self.embeddnig = tf.keras.layers.Embedding(vocab_size, embedding_dim)
+        #self.embeddnig = tf.keras.layers.Embedding(vocab_size, embedding_dim)
         
         # Fully connected layers
         self.fc = tf.keras.Sequential()
@@ -45,12 +45,13 @@ class Decoder(tf.keras.layers.Layer):
         
         # Compute character embedding vectors
         # shape of outputs : [batch_size, 1, embedding_dim]
-        embedding_vectors = self.embeddnig(decoder_output_before)
+        #embedding_vectors = self.embeddnig(decoder_output_before)
         
         # Concatenate embedding vector and context vector
         # shape of outputs : [batch_size, embedding_dim + attention_unit]
-        cell_inputs = tf.concat([tf.squeeze(embedding_vectors, axis=1), context], axis=1)
-
+        #cell_inputs = tf.concat([tf.squeeze(embedding_vectors, axis=1), context], axis=1)
+        cell_inputs = tf.concat([decoder_output_before, context], axis=1)
+        
         # GRU cell
         cell_outputs, [hidden_states_now] = self.cell(cell_inputs, [hidden_states_before])
 
