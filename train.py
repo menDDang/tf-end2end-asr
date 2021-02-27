@@ -47,7 +47,6 @@ def build_model(hp):
     decoder = model.Decoder(
         attention_unit_num=hp["decoder_attention_unit_num"],
         vocab_size=hp["decoder_vocab_size"],
-        embedding_dim=hp["decoder_embeddimg_dim"],
         gru_unit_num=hp["decoder_gru_unit_num"],
         fc_layer_num=hp["decoder_fc_layer_num"],
         fc_unit_num=hp["decoder_fc_unit_num"],
@@ -62,6 +61,7 @@ def build_model(hp):
     return encoder, decoder
 
 
+@tf.function
 def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
     
     # Get shapes
@@ -83,23 +83,16 @@ def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
         decoder_outputs, decoder_hidden_states, attention_weights_t = decoder(decoder_inputs, decoder_hidden_states, encoder_outputs)
 
         # Compute loss
-        loss += tf.reduce_sum(loss_fn(
-            tf.cast(tf.expand_dims(y_true[:, t], axis=1), tf.float32),
-            decoder_outputs, 
-            from_logits=True
-        ))
+        y_true_t = tf.one_hot(y_true[:, t], depth=vocab_size)
+        loss_t = tf.reduce_mean(loss_fn(y_true_t, decoder_outputs))
+        loss += loss_t / float(batch_size)
 
-        # Get argmax value for next step
-        decoder_inputs = tf.cast(
-            tf.expand_dims(tf.argmax(decoder_outputs, axis=1), axis=1),
-            dtype=tf.float32
-        )
+        # Use output at time t for input at time t+1
+        decoder_inputs = decoder_outputs
 
         y_pred = y_pred.write(t, decoder_inputs)
         attention_weights = attention_weights.write(t, attention_weights_t)  # shape of attention_weights_t : [B, L, 1]
         
-    loss /= float(batch_size)
-
     y_pred = y_pred.stack()
     y_pred = tf.cast(tf.transpose(y_pred, [1, 0, 2]), tf.int32)  # [T, B, 1] -> [B, T, 1]
     y_pred = tf.squeeze(y_pred, axis=2)
@@ -115,7 +108,7 @@ def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
     return loss, cer, attention_weights
     
 @tf.function
-def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn):
+def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn, batch_size, token_time_length, vocab_size):
 
     # Get shapes
     batch_size = y_true.shape[0]
@@ -135,17 +128,13 @@ def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn):
             decoder_outputs, decoder_hidden_states, _ = decoder(decoder_inputs, decoder_hidden_states, encoder_outputs)
 
             # Compute loss
-            loss += tf.reduce_sum(loss_fn(
-                tf.cast(tf.expand_dims(y_true[:, t], axis=1), tf.float32),
-                decoder_outputs, 
-                from_logits=True
-            ))
+            y_true_t = tf.one_hot(y_true[:, t], depth=vocab_size)
+            loss_t = tf.reduce_mean(loss_fn(y_true_t, decoder_outputs))
+            loss += loss_t / float(batch_size)
 
-            # Get argmax value for next step
-            decoder_inputs = tf.cast(
-                tf.expand_dims(tf.argmax(decoder_outputs, axis=1), axis=1),
-                dtype=tf.float32
-            )
+            # Teacher forcing
+            # Use y_true for input in next step
+            decoder_inputs = y_true_t
             
         loss /= float(batch_size)
 
@@ -157,6 +146,7 @@ def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn):
     
 
 if __name__ == "__main__":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
@@ -173,7 +163,6 @@ if __name__ == "__main__":
     parser.add_argument("--encoder_layer_norm", type=bool, default=True)
 
     parser.add_argument("--decoder_attention_unit_num", type=int, default=256)
-    parser.add_argument("--decoder_embedding_dim", type=int, default=256)
     parser.add_argument("--decoder_gru_unit_num", type=int, default=256)
     parser.add_argument("--decoder_fc_layer_num", type=int, default=2)
     parser.add_argument("--decoder_fc_unit_num", type=int, default=256)
@@ -198,9 +187,8 @@ if __name__ == "__main__":
     log_dir = os.path.join(args.log_dir, current_time)
 
     # Set checkpoint directory
-    os.makedirs(args.chkpt_dir, exist_ok=True)
     chkpt_dir = os.path.join(args.chkpt_dir, current_time)
-
+    os.makedirs(chkpt_dir, exist_ok=True)
 
     hp = {
         "batch_size": args.batch_size,
@@ -214,7 +202,6 @@ if __name__ == "__main__":
 
         "decoder_attention_unit_num": args.decoder_attention_unit_num,
         "decoder_vocab_size": vocab_size,
-        "decoder_embeddimg_dim": args.decoder_embedding_dim,
         "decoder_gru_unit_num": args.decoder_gru_unit_num,
         "decoder_fc_layer_num": args.decoder_fc_layer_num,
         "decoder_fc_unit_num": args.decoder_fc_unit_num,
@@ -241,9 +228,7 @@ if __name__ == "__main__":
     # Build model
     encoder, decoder = build_model(hp)
 
-    # Build optimizer & loss function
-    learning_rate = 0.001
-    optimizer = tf.optimizers.Adam(learning_rate)
+    # Build loss function
     loss_fn = tf.losses.sparse_categorical_crossentropy
 
     # Store hparams
@@ -276,7 +261,7 @@ if __name__ == "__main__":
         # Train
         for batch, (mel, y_true) in enumerate(train_dataset):
             start_time = time.time()
-            train_loss = train_step(mel, y_true, encoder, decoder, optimizer, loss_fn)
+            train_loss = train_step(mel, tokens, encoder, decoder, optimizer, loss_fn, hp["batch_size"], tokens.shape[1], vocab_size)
             step_time = time.time() - start_time
 
             log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:.4f}'.format(
@@ -288,7 +273,6 @@ if __name__ == "__main__":
                 tf.summary.scalar("Train Loss", train_loss, step=global_step)
 
             global_step += 1
-            break
 
         # Evaluate
         loss_object = tf.keras.metrics.Mean()
