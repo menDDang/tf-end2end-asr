@@ -62,14 +62,10 @@ def build_model(hp):
 
 
 @tf.function
-def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
+def evaluate_step(mel, y_true, encoder, decoder, loss_fn, batch_size, y_true_length, vocab_size):
     
-    # Get shapes
-    batch_size = y_true.shape[0]
-    y_true_length = y_true.shape[1]
-
     # Set initial states for decoder
-    decoder_inputs = tf.zeros(shape=[batch_size, 1], dtype=tf.float32)
+    decoder_inputs = tf.zeros(shape=[batch_size, vocab_size], dtype=tf.float32)
     decoder_hidden_states = decoder.get_initial_hidden_states(batch_size)
 
     # Compute outputs of encoder
@@ -94,8 +90,8 @@ def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
         attention_weights = attention_weights.write(t, attention_weights_t)  # shape of attention_weights_t : [B, L, 1]
         
     y_pred = y_pred.stack()
-    y_pred = tf.cast(tf.transpose(y_pred, [1, 0, 2]), tf.int32)  # [T, B, 1] -> [B, T, 1]
-    y_pred = tf.squeeze(y_pred, axis=2)
+    y_pred = tf.transpose(y_pred, [1, 0, 2])  # [T, B, 1] -> [B, T, 1]
+    y_pred = tf.cast(tf.argmax(y_pred, axis=2), dtype=tf.int32)
     cer = tf.reduce_mean(tf.edit_distance(
         hypothesis=tf.sparse.from_dense(y_pred),
         truth=tf.sparse.from_dense(y_true),
@@ -110,12 +106,8 @@ def evaluate_step(mel, y_true, encoder, decoder, loss_fn):
 @tf.function
 def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn, batch_size, token_time_length, vocab_size):
 
-    # Get shapes
-    batch_size = y_true.shape[0]
-    token_time_length = y_true.shape[1]
-
     # Set initial states for decoder
-    decoder_inputs = tf.zeros(shape=[batch_size, 1], dtype=tf.float32)
+    decoder_inputs = tf.zeros(shape=[batch_size, vocab_size], dtype=tf.float32)
     decoder_hidden_states = decoder.get_initial_hidden_states(batch_size)
 
     with tf.GradientTape() as tape:
@@ -229,7 +221,7 @@ if __name__ == "__main__":
     encoder, decoder = build_model(hp)
 
     # Build loss function
-    loss_fn = tf.losses.sparse_categorical_crossentropy
+    loss_fn = tf.losses.binary_crossentropy 
 
     # Store hparams
     with tf.summary.create_file_writer(log_dir).as_default():
@@ -259,7 +251,7 @@ if __name__ == "__main__":
     for epoch in range(args.num_epochs):
         
         # Train
-        for batch, (mel, y_true) in enumerate(train_dataset):
+        for batch, (mel, tokens) in enumerate(train_dataset):
             start_time = time.time()
             train_loss = train_step(mel, tokens, encoder, decoder, optimizer, loss_fn, hp["batch_size"], tokens.shape[1], vocab_size)
             step_time = time.time() - start_time
@@ -273,12 +265,13 @@ if __name__ == "__main__":
                 tf.summary.scalar("Train Loss", train_loss, step=global_step)
 
             global_step += 1
+            break
 
         # Evaluate
         loss_object = tf.keras.metrics.Mean()
         cer_object = tf.keras.metrics.Mean()
         for batch, (mel, y_true) in enumerate(dev_dataset.take(1)):
-            dev_loss, dev_cer, attention_weights = evaluate_step(mel, y_true, encoder, decoder, loss_fn)
+            dev_loss, dev_cer, attention_weights = evaluate_step(mel, y_true, encoder, decoder, loss_fn, hp["batch_size"], y_true.shape[1], vocab_size)
             
             loss_object(dev_loss)
             cer_object(dev_cer)
