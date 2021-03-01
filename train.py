@@ -16,12 +16,23 @@ def get_dataset(dataset_path,
     # Load dataset
     dataset = preprocess.load_dataset(dataset_path)
 
+    # Get max length
+    max_mel_length = 0
+    max_token_length = 0
+    for b, (mel, token) in enumerate(dataset):
+        max_mel_length = max(max_mel_length, mel.shape[0])
+        max_token_length = max(max_token_length, token.shape[0])
+        
+    print("Max mel length :", max_mel_length)
+    print("Max token length :", max_token_length)
+    num_mels = mel.shape[1]
+    
     # Pad for batching
     dataset = dataset.padded_batch(
         batch_size, 
         padded_shapes=(
-            [-1, -1],       # mel_specs
-            [-1])           # labels
+            [max_mel_length, num_mels],       # mel_specs
+            [max_token_length])           # labels
     )
 
     # Prefetch dataset (cuda streaming)
@@ -61,7 +72,7 @@ def build_model(hp):
     return encoder, decoder
 
 
-@tf.function
+@tf.function(experimental_relax_shapes=True)
 def evaluate_step(mel, y_true, encoder, decoder, loss_fn, batch_size, y_true_length, vocab_size):
     
     # Set initial states for decoder
@@ -103,7 +114,7 @@ def evaluate_step(mel, y_true, encoder, decoder, loss_fn, batch_size, y_true_len
     
     return loss, cer, attention_weights
     
-@tf.function
+@tf.function(experimental_relax_shapes=True)
 def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn, batch_size, token_time_length, vocab_size):
 
     # Set initial states for decoder
@@ -138,8 +149,6 @@ def train_step(mel, y_true, encoder, decoder, optimizer, loss_fn, batch_size, to
     
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--log_dir", type=str, required=True)
@@ -211,12 +220,12 @@ if __name__ == "__main__":
     }
 
     # Get dataset
-    train_dataset_path = os.path.join(args.data_dir, "dev.tfrecord")
+    train_dataset_path = os.path.join(args.data_dir, "train.tfrecord")
     dev_dataset_path = os.path.join(args.data_dir, "dev.tfrecord")
 
     train_dataset = get_dataset(train_dataset_path, hp["batch_size"])
     dev_dataset = get_dataset(dev_dataset_path, hp["batch_size"])
-
+    
     # Build model
     encoder, decoder = build_model(hp)
 
@@ -252,21 +261,22 @@ if __name__ == "__main__":
         
         # Train
         for batch, (mel, tokens) in enumerate(train_dataset):
-            start_time = time.time()
-            train_loss = train_step(mel, tokens, encoder, decoder, optimizer, loss_fn, hp["batch_size"], tokens.shape[1], vocab_size)
-            step_time = time.time() - start_time
+            try:
+                start_time = time.time()
+                train_loss = train_step(mel, tokens, encoder, decoder, optimizer, loss_fn, hp["batch_size"], tokens.shape[1], vocab_size)
+                step_time = time.time() - start_time
 
-            log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:.4f}'.format(
-                epoch, batch, global_step, step_time, train_loss
-            )
-            print(log_str)
+                log_str = 'Epoch : {}, Batch: {}, Global Step : {}, Spent Time : {:.4f}, Loss : {:.4f}'.format(
+                    epoch, batch, global_step, step_time, train_loss
+                )
+                print(log_str)
 
-            with tf.summary.create_file_writer(log_dir).as_default():
-                tf.summary.scalar("Train Loss", train_loss, step=global_step)
+                with tf.summary.create_file_writer(log_dir).as_default():
+                    tf.summary.scalar("Train Loss", train_loss, step=global_step)
 
-            global_step += 1
-            break
-
+                global_step += 1
+            except:
+                continue
         # Evaluate
         loss_object = tf.keras.metrics.Mean()
         cer_object = tf.keras.metrics.Mean()
