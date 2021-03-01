@@ -11,3 +11,5 @@ data/*
 processed_data/*
 logs/*
 chkpts/*
+run.sh
+train_log-*.txt
