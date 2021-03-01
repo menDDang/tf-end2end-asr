@@ -67,7 +67,7 @@ def parse_line(line, data_dir, split_names):
     return audio, sr, transcript
     
     
-def load_librispeech_dataset(data_dir, split_names):
+def load_librispeech_dataset(data_dir, split_names, max_duration=0):
 
     transcript_file_paths = get_transcripts(data_dir, split_names)
 
@@ -80,6 +80,12 @@ def load_librispeech_dataset(data_dir, split_names):
         num_parallel_calls=tf.data.experimental.AUTOTUNE
     )
 
+
+    # filtering with max_length
+    if max_duration > 0:
+        dataset = dataset.filter(lambda audio, sr, trans: (
+            tf.cast(tf.shape(audio)[0], tf.float32) <= tf.cast(sr, tf.float32) * tf.constant(max_duration, tf.float32)))
+    
     return dataset
 
 
@@ -94,9 +100,10 @@ def preprocess_librispeech(data_dir, split_names, hp):
     hertz_low = hp["hertz_low"]
     hertz_high = hp["hertz_high"]
     normalize_mel = hp["normalize_mel"]
-    
+    max_duration = hp["max_duration"]
+
     # dataset : (audio, sr, transcript)
-    dataset = load_librispeech_dataset(data_dir, split_names)
+    dataset = load_librispeech_dataset(data_dir, split_names, max_duration=max_duration)
 
     # dataset : (audio, sr, tokenized_transcription)
     tokenizer = preprocess.create_char_tokenizer()
@@ -136,6 +143,7 @@ if __name__ == "__main__":
     parser.add_argument("--hertz_low", type=int, default=0)
     parser.add_argument("--hertz_high", type=int, default=8000)
     parser.add_argument("--normalize_mel", type=bool, default=True)
+    parser.add_argument("--max_duration", type=float, default=30)
     args = parser.parse_args()
 
     # Parse arguments
@@ -148,6 +156,7 @@ if __name__ == "__main__":
         "hertz_low" : args.hertz_low,
         "hertz_high" : args.hertz_high,
         "normalize_mel" : args.normalize_mel,
+        "max_duration" : args.max_duration
     }
 
     # Create dataset
